@@ -102,7 +102,7 @@
     if (dic != nil) {
         [self saveData:dic];
     }
-    return [super application:application didFinishLaunchingWithOptions:launchOptions];
+    return YES;
 }
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
