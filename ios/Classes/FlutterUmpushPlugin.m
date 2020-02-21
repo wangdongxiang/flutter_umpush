@@ -42,20 +42,24 @@
     NSString *method = call.method;
     if ([@"configure" isEqualToString:method]) {
         [[UIApplication sharedApplication] registerForRemoteNotifications];
-        if (_launchNotification != nil) {
-            [_channel invokeMethod:@"onLaunch" arguments:_launchNotification];
-        }
         result(nil);
-    }else if([@"test" isEqualToString:method]) {
-        result(@"hello");
+    }else if([@"getToken" isEqualToString:method]) {
+        NSString * token=[NSUserDefaults.standardUserDefaults valueForKey:@"DEVICETOKEN"];
+        NSLog(@"umeng_push_plugin token: %@", token);
+        result(token);
+    }else if([@"getPushData" isEqualToString:method]) {
+        NSString *data = [NSString stringWithFormat:@"%@", [NSUserDefaults.standardUserDefaults objectForKey:@"PUSHDATA"]];
+        NSLog(@"umeng_push_plugin data: %@", data);
+        [[NSUserDefaults standardUserDefaults] setObject:@"" forKey:@"PUSHDATA"];
+        result(data);
     }else {
         result(FlutterMethodNotImplemented);
     }
 }
 
-- (NSString *)convertToJsonData:(NSDictionary *)dict {
+- (NSString *)convertToJsonData:(NSDictionary *)userInfo {
     NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:dict options:nil error:&error];
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:userInfo options:nil error:&error];
     NSString *jsonString;
     if (!jsonData) {
         NSLog(@"%@", error);
@@ -63,7 +67,6 @@
         jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
     }
     return jsonString;
-
 }
 
 - (void)didReceiveRemoteNotification:(NSDictionary *)userInfo {
@@ -72,14 +75,14 @@
     [_channel invokeMethod:@"onMessage" arguments:[self convertToJsonData:userInfo]];
 }
 
-- (BOOL)          application:(UIApplication *)application
-didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+- (BOOL) application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     NSLog(@"umeng_push_plugin application didFinishLaunchingWithOptions %@", _launchNotification);
-    // Override point for customization after application launch.
+    NSDictionary * dict = [[NSBundle mainBundle] infoDictionary];
+    NSString * appid = [dict objectForKey:@"UPUSH_Appkey"];
     [UMCommonLogManager setUpUMCommonLogManager];
     [UMConfigure setLogEnabled:YES];
 
-    [UMConfigure initWithAppkey:@"你的友盟iOSAppKey" channel:@"flutter"];
+    [UMConfigure initWithAppkey:appid channel:@"flutter"];
     [MobClick event:@"flutter_ok"];
     NSLog(@"umeng_push_plugin application init umeng ok");
     UMessageRegisterEntity *entity = [[UMessageRegisterEntity alloc] init];
@@ -119,7 +122,7 @@ didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
         [UMessage setAutoAlert:NO];
         //应用处于前台时的远程推送接受
         //必须加这句代码
-        //[UMessage didReceiveRemoteNotification:userInfo];
+        [UMessage didReceiveRemoteNotification:userInfo];
         [self didReceiveRemoteNotification:userInfo];
     } else {
         //应用处于前台时的本地推送接受
@@ -134,7 +137,7 @@ didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     if ([response.notification.request.trigger isKindOfClass:[UNPushNotificationTrigger class]]) {
         //应用处于后台时的远程推送接受
         //必须加这句代码
-        //[UMessage didReceiveRemoteNotification:userInfo];
+        [UMessage didReceiveRemoteNotification:userInfo];
         [self didReceiveRemoteNotification:userInfo];
     } else {
         //应用处于后台时的本地推送接受
@@ -144,24 +147,34 @@ didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
 #endif
 
 - (NSString *)stringDevicetoken:(NSData *)deviceToken {
-    NSString *token = [deviceToken description];
-    NSString *pushToken = [[[token stringByReplacingOccurrencesOfString:@"<" withString:@""] stringByReplacingOccurrencesOfString:@">" withString:@""] stringByReplacingOccurrencesOfString:@" " withString:@""];
-    NSLog(@"umeng_push_plugin token: %@", pushToken);
+    if (![deviceToken isKindOfClass:[NSData class]]) return @"";
+    const unsigned *tokenBytes = (const unsigned *)[deviceToken bytes];
+    NSString *pushToken = [NSString stringWithFormat:@"%08x%08x%08x%08x%08x%08x%08x%08x",
+                          ntohl(tokenBytes[0]), ntohl(tokenBytes[1]), ntohl(tokenBytes[2]),
+                          ntohl(tokenBytes[3]), ntohl(tokenBytes[4]), ntohl(tokenBytes[5]),
+                          ntohl(tokenBytes[6]), ntohl(tokenBytes[7])];
+    NSLog(@"deviceToken:%@",pushToken);
     return pushToken;
 }
-
+- (void)saveData:(NSDictionary *)userInfo {
+    NSString *json = [self convertToJsonData:userInfo];
+    NSLog(@"umeng_push json: %@", json);
+    [[NSUserDefaults standardUserDefaults] setObject:json forKey:@"PUSHDATA"];
+    [NSUserDefaults.standardUserDefaults synchronize];
+}
 - (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo {
     NSLog(@"umeng_push_plugin application didReceiveRemoteNotification userInfo: %@", userInfo);
     [self didReceiveRemoteNotification:userInfo];
 //    [UMessage setAutoAlert:NO];
 //    [UMessage didReceiveRemoteNotification:userInfo];
 //    [[NSNotificationCenter defaultCenter] postNotificationName:@"userInfoNotification" object:self userInfo:@{@"userinfo": [NSString stringWithFormat:@"%@", userInfo]}];
-
+    [self saveData:userInfo];
 }
 
 - (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
     NSLog(@"umeng_push_plugin application didRegisterForRemoteNotificationsWithDeviceToken%@", deviceToken);
-    [_channel invokeMethod:@"onToken" arguments:[self stringDevicetoken:deviceToken]];
+    [NSUserDefaults.standardUserDefaults setValue:[self stringDevicetoken:deviceToken] forKey:@"DEVICETOKEN"];
+    [NSUserDefaults.standardUserDefaults synchronize];
 }
 @end
 
