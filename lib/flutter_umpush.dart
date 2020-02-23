@@ -20,8 +20,8 @@ class FlutterUmpush {
   final Platform _platform;
 
   /// Sets up [MessageHandler] for incoming messages.
-  void configure() {
-    _channel.invokeMethod('configure');
+  Future<void> configure() async {
+    await _channel.invokeMethod('configure');
   }
 
   Future<String> getToken() async {
